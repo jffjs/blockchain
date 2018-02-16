@@ -1,5 +1,7 @@
-use std::str;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+extern crate byteorder;
+use byteorder::{ByteOrder, LittleEndian};
 
 extern crate data_encoding;
 use data_encoding::HEXLOWER;
@@ -15,44 +17,46 @@ extern crate serde_json;
 extern crate serde_derive;
 
 fn main() {
-    let block = Block {
-        index: 1,
-        timestamp: timestamp(),
-        proof: 1,
-        previous_hash: Hash::new(b"hello world"),
-        transactions: vec![]
-    };
+    let mut blockchain = Blockchain::new();
+    blockchain.transactions.push(Transaction::new("foo", "bar", 5.1));
+    blockchain.new_block(200);
+    blockchain.new_block(300);
 
-    let block2 = Block {
-        index: 2,
-        timestamp: timestamp(),
-        proof: 1,
-        previous_hash: hash_block(&block),
-        transactions: vec![]
-    };
-    println!("{}", serde_json::to_string_pretty(&block).unwrap());
-    println!("{}", serde_json::to_string_pretty(&block2).unwrap());
+    let proof = proof_of_work(100);
+    println!("{}", proof);
+
+    println!("{}", serde_json::to_string_pretty(&blockchain.blocks).unwrap());
 }
 
 struct Blockchain {
-    blocks: Vec<Block>
+    blocks: Vec<Block>,
+    transactions: Vec<Transaction>
 }
 
 impl Blockchain {
     fn new() -> Blockchain {
         Blockchain {
-            blocks: vec![Block {
-                index: 1,
-                timestamp: timestamp(),
-                proof: 1,
-                previous_hash: Hash::new(b"first"),
-                transactions: vec![]
-            }]
+            blocks: vec![
+                Block::new(1, 100, Hash::new(b"first"), vec![])
+            ],
+            transactions: vec![]
         }
     }
-}
 
-fn append_block(blockchain: &mut Blockchain) {}
+    fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    fn new_block(&mut self, proof: u64) -> &Block {
+        let transactions = self.transactions.drain(..).collect();
+        let block = Block::new(self.len() as u64 + 1,
+                               proof,
+                               self.blocks[self.len() - 1].hash(),
+                               transactions);
+        self.blocks.push(block);
+        &self.blocks[self.len() -1]
+    }
+}
 
 #[derive(Serialize)]
 struct Block {
@@ -63,11 +67,33 @@ struct Block {
     transactions: Vec<Transaction>
 }
 
+impl Block {
+    fn new(index: u64,
+           proof: u64,
+           previous_hash: Hash,
+           transactions: Vec<Transaction>) -> Block {
+        Block { index, proof, previous_hash, transactions, timestamp: timestamp() }
+    }
+
+    fn hash(&self) -> Hash {
+        let s = serde_json::to_string(self).unwrap();
+        Hash::new(s.as_ref())
+    }
+}
+
 #[derive(Serialize)]
 struct Transaction {
     sender: String,
     recipient: String,
-    amount: u64
+    amount: f64
+}
+
+impl Transaction {
+    fn new(sender: &str, recipient: &str, amount: f64) -> Transaction {
+        Transaction { sender: sender.to_owned(),
+                      recipient: recipient.to_owned(),
+                      amount }
+    }
 }
 
 struct Hash {
@@ -89,13 +115,24 @@ impl Serialize for Hash {
     }
 }
 
-fn hash_block(block: &Block) -> Hash {
-    let s = serde_json::to_string(block).unwrap();
-    Hash::new(s.as_ref())
-}
-
 fn timestamp() -> f64 {
     let now = SystemTime::now();
     let timestamp = now.duration_since(UNIX_EPOCH).expect("uh oh");
     timestamp.as_secs() as f64 + timestamp.subsec_nanos() as f64 * 1e-9
+}
+
+fn proof_of_work(last_proof: u64) -> u64 {
+    let mut proof = 0;
+    while !valid_proof(last_proof, proof) {
+        proof += 1;
+    }
+    proof
+}
+
+fn valid_proof(last_proof: u64, proof: u64) -> bool {
+    let mut guess_buf = [0; 16];
+    LittleEndian::write_u64(&mut guess_buf, last_proof);
+    LittleEndian::write_u64(&mut guess_buf[8..], proof);
+    let guess_hash = digest::digest(&digest::SHA256, &guess_buf);
+    guess_hash.as_ref()[..3] == [0;4]
 }
