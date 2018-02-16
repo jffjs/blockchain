@@ -130,9 +130,19 @@ fn proof_of_work(last_proof: u64) -> u64 {
 }
 
 fn valid_proof(last_proof: u64, proof: u64) -> bool {
+    let difficulty = 2;
+
     let mut guess_buf = [0; 16];
     LittleEndian::write_u64(&mut guess_buf, last_proof);
     LittleEndian::write_u64(&mut guess_buf[8..], proof);
+
     let guess_hash = digest::digest(&digest::SHA256, &guess_buf);
-    guess_hash.as_ref()[..3] == [0;4]
+    let bytes = guess_hash.as_ref();
+
+    for i in 0..difficulty {
+        if bytes[i] != 0 {
+            return false;
+        }
+    }
+    true
 }
