@@ -6,49 +6,77 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 
+use std::cmp::PartialEq;
 use std::time::{SystemTime, UNIX_EPOCH};
 use byteorder::{ByteOrder, LittleEndian};
 use data_encoding::HEXLOWER;
 use ring::digest;
 use serde::{Serialize, Serializer};
 
-pub struct Blockchain {
-    pub blocks: Vec<Block>,
+pub struct Node {
+    pub blockchain: Vec<Block>,
     pub transactions: Vec<Transaction>
 }
 
-impl Blockchain {
-    pub fn new() -> Blockchain {
-        Blockchain {
-            blocks: vec![
-                Block::new(1, 100, Hash::new(b"first"), vec![])
-            ],
-            transactions: vec![]
-        }
+impl Node {
+    pub fn new() -> Node {
+        let blockchain = vec![
+            Block::new(1, 100, Hash::new(b"first"), vec![])
+        ];
+        let transactions = vec![];
+
+        Node { blockchain, transactions }
     }
 
     pub fn len(&self) -> usize {
-        self.blocks.len()
+        self.blockchain.len()
     }
 
-    pub fn new_block(&mut self, proof: u64) -> &Block {
+    pub fn add_transaction(&mut self, trans: Transaction) -> u64{
+        self.transactions.push(trans);
+        self.last_block().index + 1
+    }
+
+    pub fn new_block(&mut self, proof: u64, last_hash: Hash) -> &Block {
         let transactions = self.transactions.drain(..).collect();
         let block = Block::new(self.len() as u64 + 1,
                                proof,
-                               self.blocks[self.len() - 1].hash(),
+                               last_hash,
                                transactions);
-        self.blocks.push(block);
-        &self.blocks[self.len() -1]
+        self.blockchain.push(block);
+        self.last_block()
+    }
+
+    pub fn last_block(&self) -> &Block {
+        &self.blockchain[self.blockchain.len() - 1]
+    }
+
+    pub fn valid_chain(&self) -> bool {
+        let mut index = 1;
+        while index < self.len() {
+            let last_block = &self.blockchain[index -1];
+            let block = &self.blockchain[index];
+            if block.previous_hash != last_block.hash() {
+                return false;
+            }
+
+            if !valid_proof(last_block.proof, block.proof) {
+                return false;
+            }
+            index += 1;
+        }
+
+        true
     }
 }
 
 #[derive(Serialize)]
 pub struct Block {
-    index: u64,
-    timestamp: f64,
-    proof: u64,
-    previous_hash: Hash,
-    transactions: Vec<Transaction>
+    pub index: u64,
+    pub timestamp: f64,
+    pub proof: u64,
+    pub previous_hash: Hash,
+    pub transactions: Vec<Transaction>
 }
 
 impl Block {
@@ -59,13 +87,13 @@ impl Block {
         Block { index, proof, previous_hash, transactions, timestamp: timestamp() }
     }
 
-    fn hash(&self) -> Hash {
+    pub fn hash(&self) -> Hash {
         let s = serde_json::to_string(self).unwrap();
         Hash::new(s.as_ref())
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Transaction {
     sender: String,
     recipient: String,
@@ -80,8 +108,8 @@ impl Transaction {
     }
 }
 
-struct Hash {
-    digest: digest::Digest
+pub struct Hash {
+    pub digest: digest::Digest
 }
 
 impl Hash {
@@ -90,6 +118,11 @@ impl Hash {
     }
 }
 
+impl PartialEq for Hash {
+    fn eq(&self, other: &Hash) -> bool {
+        self.digest.as_ref() == other.digest.as_ref()
+    }
+}
 impl Serialize for Hash {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer

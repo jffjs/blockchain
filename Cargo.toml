@@ -13,3 +13,4 @@ byteorder = "1.2.1"
 rocket = "0.3.6"
 rocket_codegen = "0.3.6"
 rocket_contrib = "0.3.6"
+uuid = { version = "0.6.0", features = ["v4"] }
